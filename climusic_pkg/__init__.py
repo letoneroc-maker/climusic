@@ -32,17 +32,18 @@ def init():
                 MPV_PATH = p
                 break
 
+    # yt-dlp: prefer Python module (supports --js-runtimes), then .exe, then fallback
     ytdlp = shutil.which("yt-dlp")
     if ytdlp:
         YT_DLP_CMD = [ytdlp]
     else:
-        scripts = Path(sys.executable).parent / "Scripts" / "yt-dlp.exe"
-        if scripts.exists():
-            YT_DLP_CMD = [str(scripts)]
+        r = subprocess.run([sys.executable, "-m", "yt_dlp", "--version"], capture_output=True, timeout=10, check=False)
+        if r.returncode == 0:
+            YT_DLP_CMD = [sys.executable, "-m", "yt_dlp"]
         else:
-            r = subprocess.run([sys.executable, "-m", "yt_dlp", "--version"], capture_output=True, timeout=10, check=False)
-            if r.returncode == 0:
-                YT_DLP_CMD = [sys.executable, "-m", "yt_dlp"]
+            scripts = Path(sys.executable).parent / "Scripts" / "yt-dlp.exe"
+            if scripts.exists():
+                YT_DLP_CMD = [str(scripts)]
 
     if not MPV_PATH:
         print("ERROR: mpv not found. Install mpv from https://mpv.io/installation/", file=sys.stderr)
@@ -212,7 +213,7 @@ def resolve_url(url):
     if not YT_DLP_CMD:
         raise RuntimeError("yt-dlp not available")
     for attempt in range(3):
-        cmd = YT_DLP_CMD + ["-f", "bestaudio/best", "--no-playlist", "-J", url]
+        cmd = YT_DLP_CMD + ["--js-runtimes", "node", "-f", "bestaudio/best", "--no-playlist", "-J", url]
         result = _run(cmd, timeout=45)
         if result.returncode == 0 and result.stdout.strip():
             break
