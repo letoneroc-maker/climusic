@@ -264,6 +264,12 @@ def play(query, text_mode=True):
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
 
+    # Stop any existing mpv before starting new playback
+    if IS_WINDOWS:
+        subprocess.run(["taskkill", "/F", "/IM", "mpv.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run(["pkill", "-f", "mpv"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     pipe_path = r"\\.\pipe\climusic-mpv" if IS_WINDOWS else f"/tmp/climusic-mpv-{os.getpid()}.sock"
     try:
         Path(pipe_path).unlink(missing_ok=True)
@@ -278,6 +284,9 @@ def play(query, text_mode=True):
         startupinfo=startupinfo,
         creationflags=0x08000000 if IS_WINDOWS else 0,
     )
+
+    # Wait for mpv IPC server to be ready
+    time.sleep(0.8)
 
     # Box-style UI
     current_elapsed = 0.0
