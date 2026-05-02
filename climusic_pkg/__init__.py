@@ -12,6 +12,9 @@ import time
 from pathlib import Path
 
 IS_WINDOWS = os.name == "nt"
+if IS_WINDOWS:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 MPV_PATH = None
 YT_DLP_CMD = None
 
@@ -122,41 +125,40 @@ def _get_mpv_time_unix(pipe_path: str) -> tuple:
 
 
 def _get_mpv_time_windows(pipe_path: str) -> tuple:
+    """Query mpv for current time via TCP localhost:18743."""
     try:
-        import win32file, win32pipe
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(1)
+        s.connect(("127.0.0.1", 18743))
+        cmd = _json.dumps({"command": ["get_property", "time-pos"], "request_id": 1}) + "\n"
+        s.sendall(cmd.encode())
+        data = b""
+        while b"\n" not in data:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        s.close()
+        raw = data.decode("utf-8", errors="ignore").split("\n", 1)[0]
+        result = _json.loads(raw)
+        elapsed = float(result.get("data") or 0)
 
-        # Query time-pos
-        handle1 = win32file.CreateFile(
-            pipe_path, win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-            0, None, win32file.OPEN_EXISTING, 0, None
-        )
-        try:
-            cmd = _json.dumps({"command": ["get_property", "time-pos"], "request_id": 1}).encode() + b"\n"
-            win32file.WriteFile(handle1, cmd)
-            win32file.FlushFileBuffers(handle1)
-            _, data = win32file.ReadFile(handle1, 4096)
-            raw = data.decode("utf-8", errors="ignore").split("\n", 1)[0]
-            r = _json.loads(raw)
-            elapsed = float(r.get("data") or 0)
-        finally:
-            win32file.CloseHandle(handle1)
-
-        # Query duration (separate handle)
-        handle2 = win32file.CreateFile(
-            pipe_path, win32file.GENERIC_READ | win32file.GENERIC_WRITE,
-            0, None, win32file.OPEN_EXISTING, 0, None
-        )
-        try:
-            cmd2 = _json.dumps({"command": ["get_property", "duration"], "request_id": 2}).encode() + b"\n"
-            win32file.WriteFile(handle2, cmd2)
-            win32file.FlushFileBuffers(handle2)
-            _, data2 = win32file.ReadFile(handle2, 4096)
-            raw2 = data2.decode("utf-8", errors="ignore").split("\n", 1)[0]
-            r2 = _json.loads(raw2)
-            duration = float(r2.get("data") or 0)
-        finally:
-            win32file.CloseHandle(handle2)
-
+        s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s2.settimeout(1)
+        s2.connect(("127.0.0.1", 18743))
+        cmd2 = _json.dumps({"command": ["get_property", "duration"], "request_id": 2}) + "\n"
+        s2.sendall(cmd2.encode())
+        data2 = b""
+        while b"\n" not in data2:
+            chunk = s2.recv(4096)
+            if not chunk:
+                break
+            data2 += chunk
+        s2.close()
+        raw2 = data2.decode("utf-8", errors="ignore").split("\n", 1)[0]
+        result2 = _json.loads(raw2)
+        duration = float(result2.get("data") or 0)
         return elapsed, duration
     except Exception:
         return 0, 0
@@ -264,17 +266,7 @@ def play(query, text_mode=True):
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
 
-    # Stop any existing mpv before starting new playback
-    if IS_WINDOWS:
-        subprocess.run(["taskkill", "/F", "/IM", "mpv.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    else:
-        subprocess.run(["pkill", "-f", "mpv"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    pipe_path = r"\\.\pipe\climusic-mpv" if IS_WINDOWS else f"/tmp/climusic-mpv-{os.getpid()}.sock"
-    try:
-        Path(pipe_path).unlink(missing_ok=True)
-    except Exception:
-        pass
+    pipe_path = "127.0.0.1:18743" if IS_WINDOWS else f"/tmp/climusic-mpv-{os.getpid()}.sock"
 
     proc = subprocess.Popen(
         [MPV_PATH, "--no-video", "--force-window=no", "--keep-open=no",
