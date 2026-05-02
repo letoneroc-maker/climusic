@@ -16,7 +16,7 @@ climusic = "climusic_pkg.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["climusic_pkg.*", "musicd.*", "shared.*", "musicctl.*"]
+include = ["climusic_pkg.*"]
 
 [tool.setuptools.package-dir]
 "" = "."

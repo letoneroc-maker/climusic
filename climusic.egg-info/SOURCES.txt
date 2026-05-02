@@ -1,8 +1,0 @@
-README.md
-pyproject.toml
-climusic.egg-info/PKG-INFO
-climusic.egg-info/SOURCES.txt
-climusic.egg-info/dependency_links.txt
-climusic.egg-info/entry_points.txt
-climusic.egg-info/requires.txt
-climusic.egg-info/top_level.txt
