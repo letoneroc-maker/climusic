@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import json as _json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -10,15 +12,12 @@ import time
 from pathlib import Path
 
 IS_WINDOWS = os.name == "nt"
-
-# Direct synchronous player - no daemon needed
 MPV_PATH = None
 YT_DLP_CMD = None
 
 
 def init():
     global MPV_PATH, YT_DLP_CMD
-
     if IS_WINDOWS:
         for p in [r"C:\Program Files\mpv\mpv.exe", shutil.which("mpv")]:
             if p and Path(p).exists():
@@ -38,11 +37,8 @@ def init():
         if scripts.exists():
             YT_DLP_CMD = [str(scripts)]
         else:
-            result = subprocess.run(
-                [sys.executable, "-m", "yt_dlp", "--version"],
-                capture_output=True, timeout=10, check=False
-            )
-            if result.returncode == 0:
+            r = subprocess.run([sys.executable, "-m", "yt_dlp", "--version"], capture_output=True, timeout=10, check=False)
+            if r.returncode == 0:
                 YT_DLP_CMD = [sys.executable, "-m", "yt_dlp"]
 
     if not MPV_PATH:
@@ -52,14 +48,122 @@ def init():
 
 
 def _run(cmd, timeout=45):
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
-    return result
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+
+
+def _clear_line():
+    sys.stdout.write("\r" + " " * 100 + "\r")
+    sys.stdout.flush()
+
+
+def _progress_bar(elapsed: float, total: float, width: int = 30) -> str:
+    if total <= 0:
+        return "[" + "=" * width + "]"
+    ratio = min(elapsed / total, 1.0)
+    filled = int(width * ratio)
+    bar = "█" * filled + "░" * (width - filled)
+    return f"[{bar}]"
+
+
+def _format_time(seconds):
+    if not seconds:
+        return "00:00"
+    s = max(0, int(seconds))
+    return f"{s // 60:02d}:{s % 60:02d}"
+
+
+def _get_mpv_time_pos(pipe_path: str) -> tuple:
+    """Query mpv for current time position. Returns (elapsed, duration)."""
+    if not MPV_PATH:
+        return 0, 0
+
+    if IS_WINDOWS:
+        return _get_mpv_time_windows(pipe_path)
+    return _get_mpv_time_unix(pipe_path)
+
+
+def _get_mpv_time_unix(pipe_path: str) -> tuple:
+    try:
+        import socket
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.settimeout(2)
+        s.connect(pipe_path)
+        cmd = _json.dumps({"command": ["get_property", "time-pos"], "request_id": 1}) + "\n"
+        s.sendall(cmd.encode())
+        data = b""
+        while b"\n" not in data:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        s.close()
+        raw = data.decode("utf-8", errors="ignore").split("\n", 1)[0]
+        result = _json.loads(raw)
+        elapsed = result.get("data") or 0
+
+        s2 = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s2.settimeout(2)
+        s2.connect(pipe_path)
+        cmd2 = _json.dumps({"command": ["get_property", "duration"], "request_id": 2}) + "\n"
+        s2.sendall(cmd2.encode())
+        data2 = b""
+        while b"\n" not in data2:
+            chunk = s2.recv(4096)
+            if not chunk:
+                break
+            data2 += chunk
+        s2.close()
+        raw2 = data2.decode("utf-8", errors="ignore").split("\n", 1)[0]
+        result2 = _json.loads(raw2)
+        duration = result2.get("data") or 0
+        return float(elapsed), float(duration)
+    except Exception:
+        return 0, 0
+
+
+def _get_mpv_time_windows(pipe_path: str) -> tuple:
+    try:
+        import win32file, win32pipe
+
+        handle = win32file.CreateFile(
+            pipe_path, win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+            0, None, win32file.OPEN_EXISTING, 0, None
+        )
+        try:
+            # Get time-pos
+            cmd = _json.dumps({"command": ["get_property", "time-pos"], "request_id": 1}).encode() + b"\n"
+            win32file.WriteFile(handle, cmd)
+            win32file.FlushFileBuffers(handle)
+            _, data = win32file.ReadFile(handle, 4096)
+            elapsed = 0.0
+            try:
+                r = _json.loads(data.decode("utf-8", errors="ignore").split("\n", 1)[0])
+                elapsed = float(r.get("data") or 0)
+            except Exception:
+                pass
+
+            # Get duration
+            cmd2 = _json.dumps({"command": ["get_property", "duration"], "request_id": 2}).encode() + b"\n"
+            win32file.WriteFile(handle, cmd2)
+            win32file.FlushFileBuffers(handle)
+            _, data2 = win32file.ReadFile(handle, 4096)
+            duration = 0.0
+            try:
+                r2 = _json.loads(data2.decode("utf-8", errors="ignore").split("\n", 1)[0])
+                duration = float(r2.get("data") or 0)
+            except Exception:
+                pass
+
+            return elapsed, duration
+        finally:
+            win32file.CloseHandle(handle)
+    except Exception:
+        return 0, 0
 
 
 def search_youtube(query, limit=5):
     if not YT_DLP_CMD:
         return []
-
     for attempt in range(2):
         cmd = YT_DLP_CMD + ["--flat-playlist", "--dump-single-json", f"ytsearch{limit}:{query}"]
         result = _run(cmd, timeout=40)
@@ -73,10 +177,10 @@ def search_youtube(query, limit=5):
     if result.returncode != 0 or not result.stdout.strip():
         return []
     try:
-        import json
-        payload = json.loads(result.stdout)
+        payload = _json.loads(result.stdout)
     except Exception:
         return []
+
     tracks = []
     for entry in payload.get("entries", []) or []:
         if entry.get("ie_key") != "Youtube":
@@ -104,8 +208,6 @@ def search_youtube(query, limit=5):
 def resolve_url(url):
     if not YT_DLP_CMD:
         raise RuntimeError("yt-dlp not available")
-
-    # Retry with backoff for rate limiting
     for attempt in range(3):
         cmd = YT_DLP_CMD + ["-f", "bestaudio/best", "--no-playlist", "-J", url]
         result = _run(cmd, timeout=45)
@@ -119,8 +221,7 @@ def resolve_url(url):
     if result.returncode != 0 or not result.stdout.strip():
         raise RuntimeError(f"resolve failed: {result.stderr}")
     try:
-        import json
-        payload = json.loads(result.stdout)
+        payload = _json.loads(result.stdout)
     except Exception:
         raise RuntimeError("invalid JSON")
     formats = payload.get("formats") or []
@@ -136,30 +237,26 @@ def play(query, text_mode=True):
         print("ERROR: missing dependencies (mpv/yt-dlp)")
         return 1
 
-    print("搜索中...") if text_mode else None
-
+    print("搜索中...")
     tracks = search_youtube(query, limit=5)
     if not tracks:
-        msg = f"未找到与「{query}」相关的歌曲"
-        print(msg) if text_mode else print(json.dumps({"ok": False, "message": msg}))
+        print(f"未找到与「{query}」相关的歌曲")
         return 1
 
     track = tracks[0]
     title = track["title"]
     artist = track["artist"]
 
-    print(f"正在解析：{artist} - {title}") if text_mode else None
+    print(f"正在解析：{artist} - {title}")
 
     try:
         stream_url, yt_title, duration = resolve_url(track["page_url"])
     except Exception as e:
-        msg = f"解析失败：{e}"
-        print(msg) if text_mode else print(json.dumps({"ok": False, "message": msg}))
+        print(f"解析失败：{e}")
         return 1
 
     full_title = f"{artist} - {title}" if artist else title
 
-    # Start mpv with no window, streaming audio
     startupinfo = None
     if IS_WINDOWS:
         startupinfo = subprocess.STARTUPINFO()
@@ -174,46 +271,66 @@ def play(query, text_mode=True):
 
     proc = subprocess.Popen(
         [MPV_PATH, "--no-video", "--force-window=no", "--keep-open=no",
-         f"--input-ipc-server={pipe_path}", "--really-quiet",
-         stream_url],
+         f"--input-ipc-server={pipe_path}", "--really-quiet", stream_url],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         stdin=subprocess.DEVNULL,
         startupinfo=startupinfo,
         creationflags=0x08000000 if IS_WINDOWS else 0,
     )
 
-    time.sleep(1)
+    # Header display
+    print()
+    print("━" * 60)
+    print(f"  ♪ 正在播放")
+    print(f"  标题：{full_title}")
+    print(f"  来源：YouTube  |  {track['page_url']}")
+    print("━" * 60)
+    print()
 
-    if text_mode:
-        print(f"正在播放：{full_title}")
-        print("---")
-        print(f"  来源：YouTube")
-        print(f"  时长：{_format_time(duration)}" if duration else "")
-        print(f"  链接：{track['page_url']}")
-        print("---")
-        print("按 Ctrl+C 停止播放")
+    last_update = 0
+    current_elapsed = 0.0
+    current_duration = float(duration) if duration else 0.0
+    bar_width = 26
 
     try:
         while True:
-            time.sleep(2)
+            time.sleep(1)
             if proc.poll() is not None:
                 break
+
+            now = time.time()
+            if now - last_update >= 2:
+                last_update = now
+                elapsed, dur = _get_mpv_time_pos(pipe_path)
+                if dur > 0:
+                    current_duration = dur
+                if elapsed > 0:
+                    current_elapsed = elapsed
+
+                bar = _progress_bar(current_elapsed, current_duration, bar_width)
+                elapsed_str = _format_time(current_elapsed)
+                duration_str = _format_time(current_duration)
+                if current_duration > 0:
+                    pct = f"{int(current_elapsed / current_duration * 100)}%"
+                else:
+                    pct = "0%"
+
+                # Build info display
+                title_display = full_title[:40].ljust(40)
+                info = f"  {bar}  {elapsed_str}/{duration_str}  {pct}"
+                _clear_line()
+                sys.stdout.write(f"\r{info}")
+                sys.stdout.flush()
+
     except KeyboardInterrupt:
+        _clear_line()
         proc.terminate()
-        print("\n已停止播放")
+        print("\n\n已停止播放")
         return 0
 
+    _clear_line()
+    print(f"\r  播放结束")
     return 0
-
-
-def _format_time(seconds):
-    if not seconds:
-        return "--:--"
-    s = max(0, int(seconds))
-    return f"{s // 60:02d}:{s % 60:02d}"
-
-
-import re, json
 
 
 def main():
@@ -230,24 +347,27 @@ def main():
         if not args.query:
             print("用法: climusic play <歌曲名>")
             return 1
-        q = " ".join(args.query)
-        return play(q, text_mode=args.text)
+        return play(" ".join(args.query), text_mode=args.text)
 
     if args.command == "search":
         if not args.query:
             print("用法: climusic search <关键词>")
             return 1
-        q = " ".join(args.query)
-        tracks = search_youtube(q, limit=10)
+        tracks = search_youtube(" ".join(args.query), limit=10)
         if not tracks:
             print("未找到结果")
             return 1
+        print()
+        print("━" * 50)
         for i, t in enumerate(tracks, 1):
-            print(f"{i}. {t['artist']} - {t['title']}")
+            print(f"  {i:2d}. {t['artist']} - {t['title']}")
+        print("━" * 50)
+        print(f"  共 {len(tracks)} 首")
+        print()
+        print(f"  播放示例: climusic play \"{tracks[0]['artist']} {tracks[0]['title']}\"")
         return 0
 
     if args.command == "stop":
-        # Kill all mpv processes
         if IS_WINDOWS:
             subprocess.run(["taskkill", "/F", "/IM", "mpv.exe"], check=False)
         else:
@@ -258,20 +378,21 @@ def main():
     if args.command == "status":
         if IS_WINDOWS:
             result = subprocess.run(["tasklist", "/FI", "IMAGENAME eq mpv.exe", "/NH"], capture_output=True, text=True)
-            if "mpv.exe" in result.stdout:
-                print("状态：播放中")
-            else:
-                print("状态：空闲")
+            print("状态：播放中" if "mpv.exe" in result.stdout else "状态：空闲")
         else:
             result = subprocess.run(["pgrep", "-f", "mpv"], capture_output=True)
             print("状态：播放中" if result.returncode == 0 else "状态：空闲")
         return 0
 
     if args.command == "hot":
-        print("热门歌曲（华语）")
+        print()
+        print("🔥 热门华语歌曲")
+        print()
         tracks = search_youtube("热门华语歌曲 2024", limit=10)
+        print("━" * 50)
         for i, t in enumerate(tracks, 1):
-            print(f"{i}. {t['artist']} - {t['title']}")
+            print(f"  {i:2d}. {t['artist']} - {t['title']}")
+        print("━" * 50)
         return 0
 
 
