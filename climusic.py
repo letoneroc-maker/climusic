@@ -61,7 +61,7 @@ def _progress_bar(elapsed: float, total: float, width: int = 30) -> str:
         return "[" + "=" * width + "]"
     ratio = min(elapsed / total, 1.0)
     filled = int(width * ratio)
-    bar = "█" * filled + "░" * (width - filled)
+    bar = "#" * filled + "-" * (width - filled)
     return f"[{bar}]"
 
 
@@ -280,11 +280,12 @@ def play(query, text_mode=True):
 
     # Header display
     print()
-    print("━" * 60)
-    print(f"  ♪ 正在播放")
-    print(f"  标题：{full_title}")
-    print(f"  来源：YouTube  |  {track['page_url']}")
-    print("━" * 60)
+    print("=" * 56)
+    print(f"  [>] 正在播放")
+    print(f"  标题: {full_title}")
+    print(f"  来源: YouTube")
+    print(f"  链接: {track['page_url']}")
+    print("=" * 56)
     print()
 
     last_update = 0
