@@ -1,49 +1,145 @@
-# music-agent-win
+# climusic
 
-Windows-native background music agent for CLI. Play music from YouTube, Bilibili, SoundCloud via keyword search or KKBOX hot charts.
+Windows 原生 CLI 音乐播放器 —— 通过关键词搜索在线播放 YouTube 音乐。
 
-## Install
+## 功能特性
+
+- 🔍 **在线搜索** - 通过关键词从 YouTube 搜索歌曲
+- ▶️ **在线播放** - 直接解析并播放，无下载等待
+- 📊 **动态进度条** - 实时显示播放进度、时长、百分比
+- 🎨 **方框 UI** - ASCII 方框布局，显示歌曲名、歌手、进度、来源链接
+- 🔇 **自动切歌** - 播放新歌曲时自动停止旧歌曲，不重不漏
+- 🛑 **停止命令** - 一键终止所有 mpv 进程
+
+## 安装
+
+### 前置要求
+
+1. **Python 3.9+**
+   ```bash
+   python --version
+   ```
+
+2. **mpv**（必须）
+   - 下载地址：https://mpv.io/installation/
+   - 安装后将 `mpv.exe` 所在目录加入系统 PATH
+   - 或将 mpv 安装到默认路径 `C:\Program Files\mpv\mpv.exe`
+
+3. **yt-dlp**（自动安装或手动）
+   ```bash
+   pip install yt-dlp
+   ```
+
+### 安装 climusic
 
 ```bash
 cd Desktop\music-agent-win
 pip install -e .
 ```
 
-## Requirements
-
-- Python 3.9+
-- [mpv](https://mpv.io/) (download and add to PATH)
-- yt-dlp (auto-installed or `pip install yt-dlp`)
-
-## Commands
+## 命令用法
 
 ```bash
-musicctl --text play "周杰伦 稻香"
-musicctl --text hot english
-musicctl --text pause
-musicctl --text resume
-musicctl --text stop
-musicctl --text status
-musicctl --text volume up
-musicctl --text volume 60
-musicctl --text mute
-musicctl --text doctor
-musicctl --text doctor --fix
-musicctl --text source youtube
-musicctl --text lang 粤语
+# 播放歌曲（直接搜索 + 在线播放）
+climusic play 周杰伦 晴天
+
+# 搜索歌曲（查看搜索结果）
+climusic search 周杰伦
+
+# 播放热门华语歌曲
+climusic hot
+
+# 停止播放
+climusic stop
+
+# 查看播放状态
+climusic status
 ```
 
-## Architecture
+## UI 界面
+
+播放时显示方框布局：
 
 ```
-musicctl (CLI)
-  -> musicd.daemon (Windows named pipe server)
-    -> player_mpv (mpv IPC)
-    -> resolver (yt-dlp + search adapters)
-      -> YouTubeAdapter / BilibiliAdapter / SoundCloudAdapter
-    -> hotlist_kkbox (KKBOX hot chart)
++------------------------------------------------------+
+|  [>] 正在播放: 周杰伦 Jay Chou - 晴天 Sunny Day...
++------------------------------------------------------+
+|  时长: 05:18
+|  进度: [################--------]  02:30/05:18  48%
+|  来源: https://www.youtube.com/watch?v=DYptgVkVLQ
++------------------------------------------------------+
 ```
 
-## License
+- 进度条每 0.5 秒动态更新
+- 显示已播放时间 / 总时长 / 百分比
+- 显示歌曲来源链接
 
-MIT
+## 工作原理
+
+```
+用户输入 "climusic play 晴天"
+    │
+    ▼
+// 搜索阶段
+yt-dlp --flat-playlist --dump-single-json "ytsearch5:晴天"
+    │
+    ▼
+// 解析阶段
+yt-dlp -f bestaudio --no-playlist -J <video_url>
+    │
+    ▼
+// 播放阶段
+mpv --no-video --input-ipc-server=127.0.0.1:18743 <stream_url>
+    │
+    ▼
+// IPC 控制（每 0.5 秒）
+TCP localhost:18743 → get_property time-pos / duration
+    │
+    ▼
+// UI 重绘
+ASCII 方框 + 动态进度条
+```
+
+## 依赖说明
+
+| 组件 | 用途 | 安装方式 |
+|------|------|----------|
+| mpv | 媒体播放器 | 手动安装 https://mpv.io/ |
+| yt-dlp | 视频解析 + 搜索 | `pip install yt-dlp` |
+| pywin32 | Windows IPC | `pip install pywin32`（自动依赖）|
+
+## 技术细节
+
+- **IPC 通信**：Windows 使用 TCP `localhost:18743`，Unix 使用 Unix Domain Socket
+- **播放控制**：通过 mpv IPC 的 `get_property time-pos` 和 `get_property duration` 获取播放时间
+- **防重播**：每次播放新歌曲前，先 `taskkill /F /IM mpv.exe` 终止旧进程
+- **编码处理**：Windows 端配置 `sys.stdout.reconfigure(encoding="utf-8")` 防止中文乱码
+
+## 项目结构
+
+```
+music-agent-win/
+├── climusic_pkg/
+│   ├── __init__.py      # 主程序（搜索、解析、播放、UI）
+│   └── __main__.py      # 入口点
+├── pyproject.toml       # 包配置
+└── README.md
+```
+
+## 常见问题
+
+**Q: 提示 "mpv not found"**
+A: 确保 mpv 已安装并可在 PATH 中找到，或安装在 `C:\Program Files\mpv\mpv.exe`
+
+**Q: 提示 "yt-dlp not found"**
+A: 运行 `pip install yt-dlp`
+
+**Q: 进度条一直是 00:00**
+A: 检查防火墙是否阻止了 `127.0.0.1:18743` 的 TCP 连接
+
+**Q: 两首歌曲同时播放**
+A: 当前版本已修复，每次播放会自动终止旧 mpv 进程
+
+## 开源协议
+
+MIT License
