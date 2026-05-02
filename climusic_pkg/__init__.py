@@ -298,7 +298,6 @@ def play(query, text_mode=True):
         bar = _progress_bar(elapsed, dur, 48)
         elapsed_str = _format_time(elapsed)
         dur_str = _format_time(dur)
-        # Move cursor up and redraw
         sys.stdout.write(f"\x1b[{box_line_count}A")
         sys.stdout.write("\x1b[2K")
         print("+" + "-" * 54 + "+")
@@ -317,7 +316,7 @@ def play(query, text_mode=True):
                 break
 
             now = time.time()
-            if now - last_update >= 2:
+            if now - last_update >= 0.5:
                 last_update = now
                 elapsed, dur = _get_mpv_time_pos(pipe_path)
                 if dur > 0:
