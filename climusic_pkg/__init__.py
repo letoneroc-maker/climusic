@@ -265,6 +265,9 @@ def play(query, text_mode=True):
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
+        subprocess.run(["taskkill", "/F", "/IM", "mpv.exe"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        subprocess.run(["pkill", "-f", "mpv"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     pipe_path = "127.0.0.1:18743" if IS_WINDOWS else f"/tmp/climusic-mpv-{os.getpid()}.sock"
 
