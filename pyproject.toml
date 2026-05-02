@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "climusic"
+version = "0.1.0"
+description = "Windows-native CLI music player — search and play online music."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name = "Codex"}]
+dependencies = ["pywin32"]
+
+[project.scripts]
+climusic = "climusic:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["musicd.*", "shared.*", "musicctl.*"]
