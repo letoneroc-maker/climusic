@@ -279,6 +279,8 @@ def play(query, text_mode=True):
     )
 
     # Box-style UI
+    current_elapsed = 0.0
+    current_duration = float(duration) if duration else 0.0
     print()
     print("+" + "-" * 54 + "+")
     print(f"|  [>] 正在播放: {full_title[:46]}")
@@ -289,8 +291,6 @@ def play(query, text_mode=True):
     print("+" + "-" * 54 + "+")
 
     last_update = 0
-    current_elapsed = 0.0
-    current_duration = float(duration) if duration else 0.0
     box_line_count = 7  # number of lines in the box above
 
     def _redraw_box(elapsed, dur, url):
