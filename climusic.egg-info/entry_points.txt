@@ -1,2 +1,2 @@
 [console_scripts]
-climusic = climusic:main
+climusic = climusic_pkg.__main__:main

@@ -12,8 +12,11 @@ authors = [{name = "Codex"}]
 dependencies = ["pywin32"]
 
 [project.scripts]
-climusic = "climusic:main"
+climusic = "climusic_pkg.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["musicd.*", "shared.*", "musicctl.*"]
+include = ["climusic_pkg.*", "musicd.*", "shared.*", "musicctl.*"]
+
+[tool.setuptools.package-dir]
+"" = "."

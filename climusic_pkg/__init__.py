@@ -278,20 +278,37 @@ def play(query, text_mode=True):
         creationflags=0x08000000 if IS_WINDOWS else 0,
     )
 
-    # Header display
+    # Box-style UI
     print()
-    print("=" * 56)
-    print(f"  [>] 正在播放")
-    print(f"  标题: {full_title}")
-    print(f"  来源: YouTube")
-    print(f"  链接: {track['page_url']}")
-    print("=" * 56)
-    print()
+    print("+" + "-" * 54 + "+")
+    print(f"|  [>] 正在播放: {full_title[:46]}")
+    print("+" + "-" * 54 + "+")
+    print(f"|  时长: {_format_time(current_duration)}")
+    print(f"|  进度: ")
+    print(f"|  来源: {track['page_url']}")
+    print("+" + "-" * 54 + "+")
 
     last_update = 0
     current_elapsed = 0.0
     current_duration = float(duration) if duration else 0.0
-    bar_width = 26
+    box_line_count = 7  # number of lines in the box above
+
+    def _redraw_box(elapsed, dur, url):
+        pct = f"{int(elapsed / dur * 100)}%" if dur > 0 else "0%"
+        bar = _progress_bar(elapsed, dur, 48)
+        elapsed_str = _format_time(elapsed)
+        dur_str = _format_time(dur)
+        # Move cursor up and redraw
+        sys.stdout.write(f"\x1b[{box_line_count}A")
+        sys.stdout.write("\x1b[2K")
+        print("+" + "-" * 54 + "+")
+        print(f"|  [>] 正在播放: {full_title[:46]}")
+        print("+" + "-" * 54 + "+")
+        print(f"|  时长: {dur_str}")
+        print(f"|  进度: {bar}  {elapsed_str}/{dur_str}  {pct}")
+        print(f"|  来源: {url[:48]}")
+        print("+" + "-" * 54 + "+")
+        sys.stdout.flush()
 
     try:
         while True:
@@ -308,29 +325,14 @@ def play(query, text_mode=True):
                 if elapsed > 0:
                     current_elapsed = elapsed
 
-                bar = _progress_bar(current_elapsed, current_duration, bar_width)
-                elapsed_str = _format_time(current_elapsed)
-                duration_str = _format_time(current_duration)
-                if current_duration > 0:
-                    pct = f"{int(current_elapsed / current_duration * 100)}%"
-                else:
-                    pct = "0%"
-
-                # Build info display
-                title_display = full_title[:40].ljust(40)
-                info = f"  {bar}  {elapsed_str}/{duration_str}  {pct}"
-                _clear_line()
-                sys.stdout.write(f"\r{info}")
-                sys.stdout.flush()
+                _redraw_box(current_elapsed, current_duration, track['page_url'])
 
     except KeyboardInterrupt:
-        _clear_line()
         proc.terminate()
         print("\n\n已停止播放")
         return 0
 
-    _clear_line()
-    print(f"\r  播放结束")
+    print(f"  播放结束")
     return 0
 
 
