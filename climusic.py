@@ -59,8 +59,17 @@ def _run(cmd, timeout=45):
 def search_youtube(query, limit=5):
     if not YT_DLP_CMD:
         return []
-    cmd = YT_DLP_CMD + ["--flat-playlist", "--dump-single-json", f"ytsearch{limit}:{query}"]
-    result = _run(cmd, timeout=40)
+
+    for attempt in range(2):
+        cmd = YT_DLP_CMD + ["--flat-playlist", "--dump-single-json", f"ytsearch{limit}:{query}"]
+        result = _run(cmd, timeout=40)
+        if result.returncode == 0 and result.stdout.strip():
+            break
+        if "429" in result.stdout or "Too Many Requests" in result.stderr:
+            time.sleep(2 ** attempt)
+            continue
+        break
+
     if result.returncode != 0 or not result.stdout.strip():
         return []
     try:
@@ -95,8 +104,18 @@ def search_youtube(query, limit=5):
 def resolve_url(url):
     if not YT_DLP_CMD:
         raise RuntimeError("yt-dlp not available")
-    cmd = YT_DLP_CMD + ["-f", "bestaudio/best", "--no-playlist", "-J", url]
-    result = _run(cmd, timeout=45)
+
+    # Retry with backoff for rate limiting
+    for attempt in range(3):
+        cmd = YT_DLP_CMD + ["-f", "bestaudio/best", "--no-playlist", "-J", url]
+        result = _run(cmd, timeout=45)
+        if result.returncode == 0 and result.stdout.strip():
+            break
+        if "429" in result.stderr or "Too Many Requests" in result.stderr:
+            time.sleep(2 ** attempt)
+            continue
+        break
+
     if result.returncode != 0 or not result.stdout.strip():
         raise RuntimeError(f"resolve failed: {result.stderr}")
     try:
